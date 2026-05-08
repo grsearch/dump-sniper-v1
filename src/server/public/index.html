@@ -577,7 +577,35 @@ async function refreshHealth() {
 
     // counters by module
     const cBox = $('countersBox');
-    cBox.innerHTML = Object.entries(rep.modules).map(([moduleName, counters]) => {
+
+    // 信号漏斗概览（一眼看清楚转化）
+    const tt = rep.counters_total || {};
+    const txReceived = tt['TickStream.txReceived'] || 0;
+    const txParsed = tt['DumpDetector.txParsed'] || 0;
+    const priceTicks = tt['DumpDetector.priceTicks'] || 0;
+    const dumpSignals = tt['DumpDetector.dumpSignals'] || 0;
+    const accepted = tt['SignalEngine.signalsAccepted'] || 0;
+    const buyOk = tt['Executor.buySuccess'] || 0;
+    const sellOk = tt['Executor.sellSuccess'] || 0;
+    const winners = tt['PositionManager.winners'] || 0;
+    const losers = tt['PositionManager.losers'] || 0;
+
+    const funnelHtml = `
+      <div style="background:var(--panel-2);border:1px solid var(--border);border-radius:4px;padding:10px 12px;margin-bottom:10px;">
+        <div style="color:var(--accent);font-size:11px;font-weight:600;margin-bottom:6px;">📡 信号漏斗</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:6px;font-size:11px;font-family:'SF Mono',Consolas,monospace;">
+          <div><div style="color:var(--text-dim);">TX 收到</div><div style="font-weight:600;">${txReceived}</div></div>
+          <div><div style="color:var(--text-dim);">价格更新</div><div style="font-weight:600;">${priceTicks}</div></div>
+          <div><div style="color:var(--text-dim);">砸盘信号</div><div style="font-weight:600;color:${dumpSignals > 0 ? 'var(--yellow)' : 'var(--text)'};">${dumpSignals}</div></div>
+          <div><div style="color:var(--text-dim);">通过过滤</div><div style="font-weight:600;color:${accepted > 0 ? 'var(--accent)' : 'var(--text)'};">${accepted}</div></div>
+          <div><div style="color:var(--text-dim);">买入成功</div><div style="font-weight:600;">${buyOk}</div></div>
+          <div><div style="color:var(--text-dim);">卖出成功</div><div style="font-weight:600;">${sellOk}</div></div>
+          <div><div style="color:var(--text-dim);">盈利</div><div style="font-weight:600;color:var(--green);">${winners}</div></div>
+          <div><div style="color:var(--text-dim);">亏损</div><div style="font-weight:600;color:var(--red);">${losers}</div></div>
+        </div>
+      </div>`;
+
+    cBox.innerHTML = funnelHtml + Object.entries(rep.modules).map(([moduleName, counters]) => {
       const rows = Object.entries(counters).sort().map(([k, v]) => {
         const short = k.replace(`${moduleName}.`, '');
         const isErr = /(error|fail|reject|stuck)/i.test(short) && v > 0;
