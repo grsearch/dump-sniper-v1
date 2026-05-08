@@ -1,0 +1,25 @@
+{
+  "name": "dump-sniper-v1",
+  "version": "1.0.0",
+  "description": "Solana dump-rebound sniper bot. Detects large sell orders with high price impact, executes counter-trade buys, exits on rebound or timeout.",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --trace-warnings src/index.js",
+    "health": "node scripts/health.js",
+    "health:json": "node scripts/health.js --json"
+  },
+  "dependencies": {
+    "@solana/web3.js": "^1.95.3",
+    "@solana/spl-token": "^0.4.8",
+    "@triton-one/yellowstone-grpc": "^1.3.0",
+    "axios": "^1.7.7",
+    "better-sqlite3": "^11.3.0",
+    "bn.js": "^5.2.1",
+    "bs58": "^6.0.0",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.0",
+    "node-cron": "^3.0.3",
+    "ws": "^8.18.0"
+  }
+}
