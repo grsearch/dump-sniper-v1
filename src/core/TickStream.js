@@ -134,20 +134,49 @@ class TickStream extends EventEmitter {
 
   /**
    * 监控列表变化时调用，重建 stream（最稳妥）。
-   * 防抖：500ms 内的多次调用合并。
+   *
+   * 关键修复：
+   * - 2 秒防抖（批量添加大量代币时，最后一次再 rebuild，前面的全部丢弃）
+   * - 互斥锁：上一次 rebuild 没完成时，新的 rebuild 会等
+   * - 真正等 close 完成（包括 gRPC 连接的资源释放）才开新连接
    */
   async updateSubscription(mints) {
     this.watchedMints = new Set(mints);
-    if (this._rebuildPending) return;
-    this._rebuildPending = true;
-    setTimeout(async () => {
-      this._rebuildPending = false;
-      console.log(`[TickStream] subscription change → rebuilding (${this.watchedMints.size} mints)`);
-      await this._closeStream();
-      if (this.shouldRun && this.watchedMints.size > 0) {
-        await this._connect();
-      }
-    }, 500);
+    // 取消上一次未触发的定时器，重新计时（真正的 trailing-edge debounce）
+    if (this._rebuildTimer) {
+      clearTimeout(this._rebuildTimer);
+    }
+    this._rebuildTimer = setTimeout(() => {
+      this._rebuildTimer = null;
+      this._performRebuild().catch((err) => {
+        monitor.recordError('TickStream', err, { phase: 'rebuild' });
+        console.error(`[TickStream] rebuild failed: ${err.message}`);
+      });
+    }, 2000);
+  }
+
+  async _performRebuild() {
+    // 互斥：上一次 rebuild 还在进行中，等它完成
+    if (this._rebuildInProgress) {
+      this._rebuildQueued = true;
+      return;
+    }
+    this._rebuildInProgress = true;
+    try {
+      do {
+        this._rebuildQueued = false;
+        const targetMints = new Set(this.watchedMints);
+        console.log(`[TickStream] subscription change → rebuilding (${targetMints.size} mints)`);
+        await this._closeStream();
+        // 给 gRPC 客户端充分时间释放底层 socket（重要：避免 RESOURCE_EXHAUSTED）
+        await new Promise((r) => setTimeout(r, 500));
+        if (this.shouldRun && targetMints.size > 0) {
+          await this._connect();
+        }
+      } while (this._rebuildQueued); // 期间又有新变化就再来一次
+    } finally {
+      this._rebuildInProgress = false;
+    }
   }
 
   _handleMessage(msg) {

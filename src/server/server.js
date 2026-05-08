@@ -42,7 +42,21 @@ class Server {
     this._setupRoutes();
 
     this.httpServer = http.createServer(this.app);
-    this.wss = new WebSocketServer({ server: this.httpServer, path: '/ws' });
+    this.wss = new WebSocketServer({
+      server: this.httpServer,
+      path: '/ws',
+      verifyClient: (info, cb) => {
+        if (!config.server.dashboardToken) return cb(true);
+        try {
+          const url = new URL(info.req.url, 'http://localhost');
+          const token = url.searchParams.get('token');
+          if (token === config.server.dashboardToken) return cb(true);
+          return cb(false, 401, 'Unauthorized');
+        } catch (_) {
+          return cb(false, 401, 'Unauthorized');
+        }
+      },
+    });
     this.wss.on('connection', (ws) => {
       ws.send(JSON.stringify({ type: 'hello', dryRun: config.DRY_RUN, ts: Date.now() }));
     });
@@ -116,6 +130,39 @@ class Server {
         if (this.onTokenListChanged) this.onTokenListChanged();
         this.broadcast({ type: 'tokenAdded', token });
         res.json({ ok: true, token });
+      } catch (err) {
+        res.status(500).json({ ok: false, error: err.message });
+      }
+    });
+
+    /**
+     * 批量添加：避免每次添加都触发 LaserStream 重建。
+     * Body: { tokens: [{ address, symbol }, ...] }
+     */
+    app.post('/api/tokens/batch', async (req, res) => {
+      try {
+        const { tokens } = req.body || {};
+        if (!Array.isArray(tokens) || tokens.length === 0) {
+          return res.status(400).json({ ok: false, error: 'tokens array required' });
+        }
+        const results = [];
+        const errors = [];
+        for (const t of tokens) {
+          try {
+            TokenRegistry.validateMint(t.address);
+            const token = await this.tokenRegistry.addToken(t.address, {
+              symbol: t.symbol,
+              source: 'batch',
+            });
+            results.push(token);
+          } catch (err) {
+            errors.push({ address: t.address, error: err.message });
+          }
+        }
+        // 全部加完后只通知一次（重建 LaserStream 一次）
+        if (this.onTokenListChanged) this.onTokenListChanged();
+        this.broadcast({ type: 'tokensAdded', count: results.length });
+        res.json({ ok: true, added: results.length, failed: errors.length, errors });
       } catch (err) {
         res.status(500).json({ ok: false, error: err.message });
       }

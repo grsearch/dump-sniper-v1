@@ -365,10 +365,19 @@
 const $ = (id) => document.getElementById(id);
 let ws = null;
 
+// 从 URL 的 ?token= 读取，dashboard token 透传
+const _DASHBOARD_TOKEN = (() => {
+  try {
+    const t = new URLSearchParams(location.search).get('token');
+    return t || '';
+  } catch (_) { return ''; }
+})();
+
 // ============ WebSocket ============
 function connectWs() {
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  ws = new WebSocket(`${proto}//${location.host}/ws`);
+  const tokenParam = _DASHBOARD_TOKEN ? `?token=${encodeURIComponent(_DASHBOARD_TOKEN)}` : '';
+  ws = new WebSocket(`${proto}//${location.host}/ws${tokenParam}`);
   ws.onopen = () => { $('wsBadge').textContent = '● WS'; $('wsBadge').className = 'badge ws connected'; };
   ws.onclose = () => {
     $('wsBadge').textContent = '○ WS'; $('wsBadge').className = 'badge ws disconnected';
@@ -397,7 +406,12 @@ function handleWs(msg) {
 
 // ============ API ============
 async function api(path, opts = {}) {
-  const r = await fetch(path, { headers: { 'Content-Type': 'application/json' }, ...opts });
+  const headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
+  if (_DASHBOARD_TOKEN) headers['X-Dashboard-Token'] = _DASHBOARD_TOKEN;
+  const r = await fetch(path, { ...opts, headers });
+  if (r.status === 401) {
+    showToast('未授权：请检查 URL 中的 ?token=xxx 是否正确', 'error');
+  }
   return r.json();
 }
 
